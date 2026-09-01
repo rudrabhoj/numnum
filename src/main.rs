@@ -81,7 +81,7 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(settings.window.width), px(settings.window.height)), cx);
 
         // Bind key bindings for the Editor context
-        cx.bind_keys([
+        let mut editor_key_bindings = vec![
             KeyBinding::new("enter", Enter, Some("Editor")),
             KeyBinding::new("backspace", Backspace, Some("Editor")),
             KeyBinding::new("delete", Delete, Some("Editor")),
@@ -91,6 +91,8 @@ fn main() {
             KeyBinding::new("down", Down, Some("Editor")),
             KeyBinding::new("shift-left", SelectLeft, Some("Editor")),
             KeyBinding::new("shift-right", SelectRight, Some("Editor")),
+            KeyBinding::new("shift-up", SelectUp, Some("Editor")),
+            KeyBinding::new("shift-down", SelectDown, Some("Editor")),
             KeyBinding::new("cmd-a", SelectAll, Some("Editor")),
             KeyBinding::new("ctrl-a", SelectAll, Some("Editor")),
             KeyBinding::new("home", Home, Some("Editor")),
@@ -108,7 +110,25 @@ fn main() {
             KeyBinding::new("tab", Tab, Some("Editor")),
             KeyBinding::new("escape", Escape, Some("Editor")),
             KeyBinding::new("escape", EscapeSettings, Some("SettingsPane")),
+        ];
+
+        #[cfg(target_os = "macos")]
+        editor_key_bindings.extend([
+            KeyBinding::new("alt-left", MoveWordLeft, Some("Editor")),
+            KeyBinding::new("alt-right", MoveWordRight, Some("Editor")),
+            KeyBinding::new("alt-shift-left", SelectWordLeft, Some("Editor")),
+            KeyBinding::new("alt-shift-right", SelectWordRight, Some("Editor")),
+            KeyBinding::new("cmd-left", Home, Some("Editor")),
+            KeyBinding::new("cmd-right", End, Some("Editor")),
+            KeyBinding::new("cmd-shift-left", SelectHome, Some("Editor")),
+            KeyBinding::new("cmd-shift-right", SelectEnd, Some("Editor")),
+            KeyBinding::new("cmd-up", DocumentStart, Some("Editor")),
+            KeyBinding::new("cmd-down", DocumentEnd, Some("Editor")),
+            KeyBinding::new("cmd-shift-up", SelectDocumentStart, Some("Editor")),
+            KeyBinding::new("cmd-shift-down", SelectDocumentEnd, Some("Editor")),
         ]);
+
+        cx.bind_keys(editor_key_bindings);
 
         let font_size = settings.editor.font_size;
         let settings_clone = settings.clone();

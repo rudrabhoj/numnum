@@ -45,9 +45,21 @@ actions!(
         Down,
         SelectLeft,
         SelectRight,
+        MoveWordLeft,
+        MoveWordRight,
+        SelectWordLeft,
+        SelectWordRight,
+        SelectUp,
+        SelectDown,
         SelectAll,
         Home,
         End,
+        SelectHome,
+        SelectEnd,
+        DocumentStart,
+        DocumentEnd,
+        SelectDocumentStart,
+        SelectDocumentEnd,
         Copy,
         Cut,
         Paste,
@@ -119,6 +131,36 @@ enum SelectMode {
     Character,
     Word { anchor_start: usize, anchor_end: usize },
     Line { anchor_start: usize, anchor_end: usize },
+}
+
+fn previous_word_boundary(text: &str, offset: usize) -> usize {
+    text.unicode_word_indices()
+        .take_while(|(start, _)| *start < offset)
+        .map(|(start, _)| start)
+        .last()
+        .unwrap_or(0)
+}
+
+fn next_word_boundary(text: &str, offset: usize) -> usize {
+    text.unicode_word_indices()
+        .find_map(|(start, word)| {
+            let end = start + word.len();
+            (end > offset).then_some(end)
+        })
+        .unwrap_or(text.len())
+}
+
+fn extend_selection(mut range: Range<usize>, mut reversed: bool, offset: usize) -> (Range<usize>, bool) {
+    if reversed {
+        range.start = offset;
+    } else {
+        range.end = offset;
+    }
+    if range.end < range.start {
+        reversed = !reversed;
+        range = range.end..range.start;
+    }
+    (range, reversed)
 }
 
 pub struct Editor {
@@ -541,6 +583,16 @@ impl Editor {
         self.line_start_offset(line) + lines[line].len()
     }
 
+    fn vertical_offset(&self, direction: isize) -> usize {
+        let (line, col) = self.line_col_for_offset(self.cursor_offset());
+        let target_line = line.saturating_add_signed(direction);
+        if target_line >= self.line_count() {
+            self.content.len()
+        } else {
+            self.offset_for_line_col(target_line, col)
+        }
+    }
+
     // --- Navigation actions ---
 
     fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
@@ -608,12 +660,7 @@ impl Editor {
             self.completion_move_up(cx);
             return;
         }
-        let (line, col) = self.line_col_for_offset(self.cursor_offset());
-        if line > 0 {
-            self.move_to(self.offset_for_line_col(line - 1, col), cx);
-        } else {
-            self.move_to(0, cx);
-        }
+        self.move_to(self.vertical_offset(-1), cx);
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
@@ -621,13 +668,15 @@ impl Editor {
             self.completion_move_down(cx);
             return;
         }
-        let (line, col) = self.line_col_for_offset(self.cursor_offset());
-        let count = self.line_count();
-        if line + 1 < count {
-            self.move_to(self.offset_for_line_col(line + 1, col), cx);
-        } else {
-            self.move_to(self.content.len(), cx);
-        }
+        self.move_to(self.vertical_offset(1), cx);
+    }
+
+    fn move_word_left(&mut self, _: &MoveWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(previous_word_boundary(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn move_word_right(&mut self, _: &MoveWordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(next_word_boundary(&self.content, self.cursor_offset()), cx);
     }
 
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
@@ -648,6 +697,22 @@ impl Editor {
         self.select_to(self.next_boundary(self.cursor_offset()), cx);
     }
 
+    fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(previous_word_boundary(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_word_right(&mut self, _: &SelectWordRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(next_word_boundary(&self.content, self.cursor_offset()), cx);
+    }
+
+    fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.vertical_offset(-1), cx);
+    }
+
+    fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.vertical_offset(1), cx);
+    }
+
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.move_to(0, cx);
         self.select_to(self.content.len(), cx);
@@ -661,6 +726,32 @@ impl Editor {
     fn end(&mut self, _: &End, _: &mut Window, cx: &mut Context<Self>) {
         let (line, _col) = self.line_col_for_offset(self.cursor_offset());
         self.move_to(self.line_end_offset(line), cx);
+    }
+
+    fn select_home(&mut self, _: &SelectHome, _: &mut Window, cx: &mut Context<Self>) {
+        let (line, _) = self.line_col_for_offset(self.cursor_offset());
+        self.select_to(self.line_start_offset(line), cx);
+    }
+
+    fn select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
+        let (line, _) = self.line_col_for_offset(self.cursor_offset());
+        self.select_to(self.line_end_offset(line), cx);
+    }
+
+    fn document_start(&mut self, _: &DocumentStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(0, cx);
+    }
+
+    fn document_end(&mut self, _: &DocumentEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.content.len(), cx);
+    }
+
+    fn select_document_start(&mut self, _: &SelectDocumentStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(0, cx);
+    }
+
+    fn select_document_end(&mut self, _: &SelectDocumentEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.content.len(), cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -824,15 +915,11 @@ impl Editor {
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        if self.selection_reversed {
-            self.selected_range.start = offset;
-        } else {
-            self.selected_range.end = offset;
-        }
-        if self.selected_range.end < self.selected_range.start {
-            self.selection_reversed = !self.selection_reversed;
-            self.selected_range = self.selected_range.end..self.selected_range.start;
-        }
+        (self.selected_range, self.selection_reversed) = extend_selection(
+            self.selected_range.clone(),
+            self.selection_reversed,
+            offset,
+        );
         self.pause_blinking(cx);
         cx.notify();
     }
@@ -1697,9 +1784,21 @@ impl Render for Editor {
             .on_action(cx.listener(Self::down))
             .on_action(cx.listener(Self::select_left))
             .on_action(cx.listener(Self::select_right))
+            .on_action(cx.listener(Self::move_word_left))
+            .on_action(cx.listener(Self::move_word_right))
+            .on_action(cx.listener(Self::select_word_left))
+            .on_action(cx.listener(Self::select_word_right))
+            .on_action(cx.listener(Self::select_up))
+            .on_action(cx.listener(Self::select_down))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
+            .on_action(cx.listener(Self::select_home))
+            .on_action(cx.listener(Self::select_end))
+            .on_action(cx.listener(Self::document_start))
+            .on_action(cx.listener(Self::document_end))
+            .on_action(cx.listener(Self::select_document_start))
+            .on_action(cx.listener(Self::select_document_end))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::paste))
@@ -1822,3 +1921,42 @@ impl Focusable for Editor {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{extend_selection, next_word_boundary, previous_word_boundary};
+
+    #[test]
+    fn word_boundaries_are_unicode_aware() {
+        let text = "café 世界 résumé";
+
+        assert_eq!(next_word_boundary(text, 0), "café".len());
+        assert_eq!(next_word_boundary(text, "café".len()), "café 世".len());
+        assert_eq!(previous_word_boundary(text, text.len()), "café 世界 ".len());
+        assert_eq!(previous_word_boundary(text, "café 世界".len()), "café 世".len());
+    }
+
+    #[test]
+    fn word_boundaries_skip_separators() {
+        let text = "one,  two";
+
+        assert_eq!(next_word_boundary(text, 0), 3);
+        assert_eq!(next_word_boundary(text, 3), text.len());
+        assert_eq!(previous_word_boundary(text, text.len()), 6);
+        assert_eq!(previous_word_boundary(text, 6), 0);
+    }
+
+    #[test]
+    fn extending_selection_keeps_anchor_when_crossing_it() {
+        let (range, reversed) = extend_selection(4..4, false, 8);
+        assert_eq!(range, 4..8);
+        assert!(!reversed);
+
+        let (range, reversed) = extend_selection(range, reversed, 2);
+        assert_eq!(range, 2..4);
+        assert!(reversed);
+
+        let (range, reversed) = extend_selection(range, reversed, 7);
+        assert_eq!(range, 4..7);
+        assert!(!reversed);
+    }
+}
